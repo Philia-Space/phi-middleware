@@ -1,0 +1,7 @@
+.env
+*.log
+*.exe
+*.bin
+.DS_Store
+node_modules/
+.next/
