@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -92,9 +93,11 @@ func AuthJWKS(cfg ...JWKSAuthConfig) func(http.Handler) http.Handler {
 			}
 			claims, err := validateRS256Token(tokenString, fetcher, issuer, c.Audience)
 			if err != nil {
+				// Log detailed error internally; do NOT expose internals to client.
+				log.Printf("[JWKS Auth] token validation failed: %v", err)
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusUnauthorized)
-				w.Write([]byte(fmt.Sprintf(`{"success":false,"error":{"code":"UNAUTHORIZED","message":"%s"}}`, err.Error())))
+				w.Write([]byte(`{"success":false,"error":{"code":"UNAUTHORIZED","message":"invalid or expired token"}}`))
 				return
 			}
 
