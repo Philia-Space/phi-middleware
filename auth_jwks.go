@@ -12,6 +12,14 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
+// JTIBlocklist is the minimal contract a service must implement to plug a
+// JWT JTI revocation list into the AuthJWKS middleware. If a token's `jti`
+// claim is present and IsBlocked returns true, the request is rejected with
+// HTTP 401. This enables logout-time revocation without re-issuing tokens.
+type JTIBlocklist interface {
+	IsBlocked(jti string) bool
+}
+
 // JWKSAuthConfig holds configuration for RS256 JWT validation via JWKS
 type JWKSAuthConfig struct {
 	IssuerURL      string
@@ -20,6 +28,9 @@ type JWKSAuthConfig struct {
 	Audience       string
 	CacheTTL       time.Duration
 	SkipPaths      []string
+	// Blocklist is optional. When set, validated tokens whose `jti` is
+	// present in the blocklist are rejected (used for logout revocation).
+	Blocklist JTIBlocklist
 }
 
 // DefaultJWKSAuthConfig returns sensible defaults
@@ -98,6 +109,16 @@ func AuthJWKS(cfg ...JWKSAuthConfig) func(http.Handler) http.Handler {
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusUnauthorized)
 				w.Write([]byte(`{"success":false,"error":{"code":"UNAUTHORIZED","message":"invalid or expired token"}}`))
+				return
+			}
+
+			// Check JTI blocklist (logout revocation). Skip when no blocklist
+			// is configured or when the token has no `jti` claim.
+			if c.Blocklist != nil && claims.ID != "" && c.Blocklist.IsBlocked(claims.ID) {
+				log.Printf("[JWKS Auth] rejected blocked jti: %s", claims.ID)
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusUnauthorized)
+				w.Write([]byte(`{"success":false,"error":{"code":"UNAUTHORIZED","message":"token has been revoked"}}`))
 				return
 			}
 
